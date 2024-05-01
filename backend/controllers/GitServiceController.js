@@ -1,49 +1,119 @@
 const fs = require("node:fs");
-const { exec } = require("child_process");
+const util = require("util");
+const exec = util.promisify(require("child_process").exec);
 
-const createRepository = (req, res) => {
+const createRepository = async (req, res) => {
   try {
     const repositoryName = req.body.repositoryName;
-    const folderName = process.env.REPOSITORY_PATH + "/" + repositoryName;
-    try {
-      if (!fs.existsSync(folderName)) {
-        fs.mkdirSync(folderName);
-      }
-
-      const commands = "cd " + folderName + " && git init --bare";
-      exec(commands, (error, stdout, stderr) => {
-        if (error) {
-          console.error(`exec error: ${error}`);
-          return;
-        }
-        if (stderr) {
-          console.error(`stderr: ${stderr}`);
-          return;
-        }
-        res.json({
-          message: `${repositoryName} has been created successfully. Clone this repository with URL ${getCloneUrl(
-            repositoryName
-          )}`,
-        });
-      });
-    } catch (err) {
-      console.error(err);
+    if (repositoryName == null || repositoryName == undefined) {
+      throw "Bad input";
     }
+
+    if (!fs.existsSync(repositoryPath)) {
+      fs.mkdirSync(repositoryPath, { recursive: true });
+    }
+
+    const { error, stdout, stderr } = await exec(
+      getRepositorySetupCmds(repositoryName)
+    );
+
+    let message = `${repositoryName} has been created successfully. Clone this repository with URL ${getCloneUrl(
+      repositoryName
+    )}`;
+
+    if (stderr) {
+      message = `OOPs! Something went wrong`;
+      res.status(500);
+    }
+
+    res.json({
+      message,
+      stdout,
+      stderr,
+      error,
+    });
   } catch (error) {
-    res.status(500).send(error.message);
+    message = `OOPs! Something went wrong`;
+    res.status(500).json({
+      message,
+      error,
+    });
   }
 };
 
-const getCloneUrl = (repositoryName) => {
-  return (
-    process.env.REPOSITORY_USER +
-    "@" +
-    process.env.REPOSITORY_IP +
-    ":" +
-    process.env.REPOSITORY_PATH +
-    "/" +
-    repositoryName
-  );
+const getRepositoryList = async (req, res) => {
+  try {
+    const { error, stdout, stderr } = await exec(getRepositoryListCmds());
+
+    if (stderr) {
+      res.status(500).json({
+        message: "OOPs! Something went wrong",
+        stderr,
+      });
+    }
+
+    res.json({
+      message: "OK",
+      stdout,
+    });
+  } catch (error) {
+    message = `OOPs! Something went wrong`;
+    res.status(500).json({
+      message,
+      error,
+    });
+  }
 };
 
-module.exports = { createRepository };
+const getRepositoryContent = async (req, res) => {
+  try {
+    const repositoryName = req.params.repositoryName;
+
+    const { error, stdout, stderr } = await exec(
+      getRepositoryContentsCmds(repositoryName)
+    );
+
+    if (stderr) {
+      res.status(500).json({
+        message: "OOPs! Something went wrong",
+        stderr,
+      });
+    }
+
+    res.json({
+      message: "OK",
+      stdout,
+    });
+  } catch (error) {
+    message = `OOPs! Something went wrong`;
+    res.status(500).json({
+      message,
+      error,
+    });
+  }
+};
+
+// Exec commands
+const getRepositoryListCmds = () => {
+  return `su ${process.env.REPOSITORY_USER} && cd ${process.env.REPOSITORY_USER}  && ls -l`;
+};
+
+const getRepositoryContentsCmds = (repositoryName) => {
+  return `su ${process.env.REPOSITORY_USER} && cd ${getRepositoryPath(
+    repositoryName
+  )} && git ls-tree -r HEAD`;
+};
+
+const getRepositorySetupCmds = (repositoryName) => {
+  return `cd ${getRepositoryPath(repositoryName)} && git init --bare`;
+};
+
+const getRepositoryPath = (repositoryName) => {
+  return `${process.env.REPOSITORY_PATH}/${repositoryName}`;
+};
+
+const getCloneUrl = (repositoryName) => {
+  return `${process.env.REPOSITORY_USER}@${process.env.REPOSITORY_IP}:${process.env.REPOSITORY_PATH}/${repositoryName}`;
+};
+
+module.exports = { createRepository, getRepositoryContent, getRepositoryList };
